@@ -1,0 +1,10 @@
+django
+djangorestframework
+djangorestframework-simplejwt
+mysqlclient
+openai
+pdfplumber
+python-dotenv
+django-cors-headers
+bcrypt
+
