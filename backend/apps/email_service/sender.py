@@ -1,13 +1,12 @@
 # File: backend/apps/email_service/sender.py
-# Purpose: SMTP sender for sharing generated login credentials.
+# Purpose: Email sender using Resend API for sharing generated login credentials.
 # App: email_service
 
 from __future__ import annotations
 
 import os
-import smtplib
-from email.mime.text import MIMEText
 
+import resend
 from dotenv import load_dotenv
 
 
@@ -15,26 +14,23 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 
-def _smtp_login_credentials() -> tuple[str | None, str | None]:
-    return os.getenv("SENDER_EMAIL"), os.getenv("SENDER_PASS")
-
-
 def _send_email(to_email: str, subject: str, body: str) -> None:
-    sender_email, sender_password = _smtp_login_credentials()
-    if not sender_email or not sender_password:
+    api_key = (os.getenv("RESEND_API_KEY") or "").strip()
+    sender_email = os.getenv("SENDER_EMAIL", "onboarding@resend.dev")
+
+    if not api_key:
         raise RuntimeError(
-            "Missing SENDER_EMAIL or SENDER_PASS in backend/.env."
+            "Missing RESEND_API_KEY in environment variables."
         )
 
-    msg = MIMEText(body)
-    msg["Subject"] = subject
-    msg["From"] = sender_email
-    msg["To"] = to_email
+    resend.api_key = api_key
 
-    with smtplib.SMTP("smtp.gmail.com", 587, timeout=5) as server:
-        server.starttls()
-        server.login(sender_email, sender_password)
-        server.sendmail(sender_email, [to_email], msg.as_string())
+    resend.Emails.send({
+        "from": sender_email,
+        "to": [to_email],
+        "subject": subject,
+        "text": body,
+    })
 
 
 def send_credentials_email(to_email: str, password: str) -> None:
@@ -55,7 +51,7 @@ def send_credentials_email(to_email: str, password: str) -> None:
 def send_test_email(to_email: str) -> None:
     subject = "ResumeBoard AI SMTP Test"
     body = (
-        "SMTP configuration is working.\n\n"
+        "Email configuration is working.\n\n"
         "This is a test email from ResumeBoard AI backend."
     )
     _send_email(to_email=to_email, subject=subject, body=body)
@@ -69,11 +65,6 @@ def send_credentials_email_safe(to_email: str, password: str) -> tuple[bool, str
     try:
         send_credentials_email(to_email, password)
         return True, "sent"
-    except smtplib.SMTPAuthenticationError:
-        return (
-            False,
-            "Email not sent: SMTP authentication failed. Use a Gmail App Password.",
-        )
     except Exception as exc:
         return False, f"Email not sent: {exc}"
 
@@ -82,11 +73,5 @@ def send_test_email_safe(to_email: str) -> tuple[bool, str]:
     try:
         send_test_email(to_email=to_email)
         return True, "sent"
-    except smtplib.SMTPAuthenticationError:
-        return (
-            False,
-            "SMTP authentication failed. Use a Gmail App Password.",
-        )
     except Exception as exc:
         return False, str(exc)
-
