@@ -26,6 +26,10 @@ if submit:
                 result = parse_resume(uploaded_file)
                 message = result.get("message") or "Check your email to login."
                 st.success(message)
+                if result.get("credentials"):
+                    creds = result["credentials"]
+                    st.warning("Since the email could not be sent, please copy your login credentials below:")
+                    st.info(f"**Email:** {creds['email']}\n\n**Password:** {creds['password']}")
             except Exception as e:
                 st.error(str(e))
 
