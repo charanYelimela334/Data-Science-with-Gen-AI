@@ -6,13 +6,15 @@ from __future__ import annotations
 
 import io
 
-import pdfplumber
+import pypdfium2 as pdfium
 
 
 def extract_text_from_pdf(pdf_bytes: bytes) -> str:
     text_parts: list[str] = []
-    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-        for page in pdf.pages:
-            text_parts.append(page.extract_text() or "")
+    pdf = pdfium.PdfDocument(pdf_bytes)
+    for i in range(len(pdf)):
+        page = pdf[i]
+        textpage = page.get_textpage()
+        text_parts.append(textpage.get_text_bounded() or "")
     return "\n".join(text_parts).strip()
 
