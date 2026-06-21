@@ -20,22 +20,7 @@ class ResumeParsingError(RuntimeError):
     """Raised when LLM resume parsing fails in a recoverable way."""
 
 
-def _system_prompt() -> str:
-    return (
-        "You are a strict JSON resume parser. Return only valid JSON.\n"
-        "Use exactly this schema keys: basic_info, skills, experience, projects, education, certifications.\n"
-        "basic_info must include: first_name, last_name, email, phone, dob, location, linkedin, github.\n"
-        "skills is an array of objects: {skill_name, level} where level is Beginner|Intermediate|Expert.\n"
-        "experience objects: {title, company, duration, description, responsibilities}.\n"
-        "projects objects: {title, description, technologies, duration}.\n"
-        "education objects: {degree, institution, year, cgpa}.\n"
-        "certifications objects: {name, issuer, year}.\n"
-        "Use null for missing values, never empty strings.\n"
-        "No markdown, no explanations, no extra keys."
-    )
-
-
-def parse_resume_with_gpt(resume_text: str) -> Dict[str, Any]:
+def parse_resume_with_gpt(prompt: str) -> Dict[str, Any]:
     try:
         api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
         if not api_key:
@@ -64,12 +49,13 @@ def parse_resume_with_gpt(resume_text: str) -> Dict[str, Any]:
         completion = client.chat.completions.create(
             model=model,
             temperature=0,
+            response_format={"type": "json_object"},
             messages=[
-                {"role": "system", "content": _system_prompt()},
-                {"role": "user", "content": resume_text},
+                {"role": "user", "content": prompt},
             ],
         )
         content = (completion.choices[0].message.content or "{}").strip()
+        # Fallback stripping just in case
         if content.startswith("```"):
             content = content.replace("```json", "").replace("```", "").strip()
         return json.loads(content)

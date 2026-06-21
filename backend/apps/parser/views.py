@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import logging
 import secrets
 from typing import Any
 
@@ -28,6 +29,11 @@ from apps.profiles.models import (
 
 from .gpt_extractor import ResumeParsingError, parse_resume_with_gpt
 from .pdf_extractor import extract_text_from_pdf
+from .rag.few_shot_builder import _get_schema_instructions, build_extraction_prompt
+from .rag.retriever import get_few_shot_examples
+from .rag.vector_store import vector_store
+
+logger = logging.getLogger(__name__)
 
 
 def _safe_list(value: Any) -> list[dict]:
@@ -68,7 +74,19 @@ class ParseResumeView(APIView):
             )
 
         try:
-            parsed = parse_resume_with_gpt(raw_text)
+            examples = get_few_shot_examples(raw_text)
+        except Exception as e:
+            logger.warning(f"RAG retrieval failed: {e}")
+            examples = []
+            
+        try:
+            prompt = build_extraction_prompt(raw_text, examples)
+        except Exception as e:
+            logger.warning(f"RAG prompt building failed: {e}")
+            prompt = _get_schema_instructions() + f"\n\nNow, parse the following new resume:\n\nRAW RESUME:\n{raw_text}\n"
+
+        try:
+            parsed = parse_resume_with_gpt(prompt)
         except ResumeParsingError as exc:
             return Response(
                 {"status": "error", "message": str(exc)},
@@ -84,7 +102,7 @@ class ParseResumeView(APIView):
             email = _fallback_email(first_name, last_name)
 
         generated_password = secrets.token_urlsafe(10)
-        user = User.objects.create_user(email=email, password=generated_password)
+        user = User.objects.create_user(email=email, password=generated_password, raw_resume_text=raw_text)
 
         BasicInfo.objects.create(
             user=user,
@@ -158,6 +176,11 @@ class ParseResumeView(APIView):
         )
 
         email_sent, email_reason = send_credentials_email_safe(email, generated_password)
+
+        try:
+            vector_store.add_resume(str(user.id), raw_text, parsed, verified=False)
+        except Exception as e:
+            logger.warning(f"Failed to add resume to vector store: {e}")
 
         message = (
             "Check your email to login."

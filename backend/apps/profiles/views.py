@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from django.db import transaction
 from django.utils.dateparse import parse_date
 from rest_framework import permissions, status
@@ -14,6 +16,10 @@ from apps.accounts.models import User
 
 from .models import BasicInfo, Certification, Education, Experience, Project, Skill
 from .serializers import ProfileUpdateSerializer
+
+from apps.parser.rag.vector_store import vector_store
+
+logger = logging.getLogger(__name__)
 
 
 def _profile_payload(user: User):
@@ -149,6 +155,18 @@ class ProfileUpdateView(APIView):
 
         user.profile_status = User.STATUS_OPEN_TO_WORK
         user.save(update_fields=["profile_status"])
+
+        try:
+            if user.raw_resume_text:
+                corrected_json = _profile_payload(user)
+                vector_store.add_resume(
+                    str(user.id), 
+                    user.raw_resume_text, 
+                    corrected_json, 
+                    verified=True
+                )
+        except Exception as e:
+            logger.warning(f"Failed to add verified resume to vector store: {e}")
 
         return Response(
             {"status": "success", "message": "Profile verified!"},
