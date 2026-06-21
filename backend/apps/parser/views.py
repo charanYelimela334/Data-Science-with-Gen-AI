@@ -175,7 +175,10 @@ class ParseResumeView(APIView):
             ]
         )
 
-        email_sent, email_reason = send_credentials_email_safe(email, generated_password)
+        if email.endswith("@resumeboard.local"):
+            email_sent, email_reason = False, "No valid email found in resume."
+        else:
+            email_sent, email_reason = send_credentials_email_safe(email, generated_password)
 
         try:
             vector_store.add_resume(str(user.id), raw_text, parsed, verified=False)
