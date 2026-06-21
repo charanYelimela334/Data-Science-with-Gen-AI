@@ -185,11 +185,14 @@ class ParseResumeView(APIView):
         except Exception as e:
             logger.warning(f"Failed to add resume to vector store: {e}")
 
-        message = (
-            "Check your email to login."
-            if email_sent
-            else "Profile created, but credentials email failed. Contact admin."
-        )
+        if email.endswith("@resumeboard.local"):
+            message = "No valid email address was found in your resume. A profile has been created with the temporary credentials below."
+        else:
+            message = (
+                "Check your email to login."
+                if email_sent
+                else "Profile created, but credentials email failed. Contact admin."
+            )
 
         return Response(
             {
