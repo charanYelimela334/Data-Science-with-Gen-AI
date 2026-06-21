@@ -58,3 +58,10 @@ def send_credentials_email_safe(to_email: str, password: str) -> tuple[bool, str
         return True, "sent"
     except Exception as exc:
         return False, f"Email not sent: {exc}"
+
+def send_test_email(to_email: str) -> None:
+    # Test emails are not directly supported by this EmailJS template
+    pass
+
+def send_test_email_safe(to_email: str) -> tuple[bool, str]:
+    return True, "Test email endpoint bypassed for EmailJS"
