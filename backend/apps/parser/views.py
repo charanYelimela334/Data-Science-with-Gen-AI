@@ -96,7 +96,16 @@ class ParseResumeView(APIView):
 
         first_name = basic.get("first_name")
         last_name = basic.get("last_name")
-        email = basic.get("email") or _fallback_email(first_name, last_name)
+        import re
+        email = basic.get("email")
+        if not email:
+            # Fallback 1: Hunt for any email string in the raw text
+            email_matches = re.findall(r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+', raw_text)
+            if email_matches:
+                email = email_matches[0]
+            else:
+                # Fallback 2: Fake local email
+                email = _fallback_email(first_name, last_name)
 
         if User.objects.filter(email=email).exists():
             email = _fallback_email(first_name, last_name)
