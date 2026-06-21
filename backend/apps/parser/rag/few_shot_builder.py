@@ -12,6 +12,7 @@ def _get_schema_instructions() -> str:
         "You are a strict JSON resume parser. Return only valid JSON.\n"
         "Use exactly this schema keys: basic_info, skills, experience, projects, education, certifications.\n"
         "basic_info must include: first_name, last_name, email, phone, dob, location, linkedin, github.\n"
+        "CRITICAL: You MUST carefully scan the text and extract the exact email address for basic_info.email. Do not miss it.\n"
         "skills is an array of objects: {skill_name, level} where level is Beginner|Intermediate|Expert.\n"
         "experience objects: {title, company, duration, description, responsibilities}.\n"
         "projects objects: {title, description, technologies, duration}.\n"
