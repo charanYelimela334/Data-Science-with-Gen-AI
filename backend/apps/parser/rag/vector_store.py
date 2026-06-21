@@ -1,43 +1,55 @@
 # File: backend/apps/parser/rag/vector_store.py
-# Purpose: ChromaDB client for storing and retrieving resume examples.
+# Purpose: Lightweight JSON-based vector store for storing and retrieving resume examples.
 # App: parser
 
 from __future__ import annotations
 
 import json
+import math
 import os
 from typing import Any, Dict, List
-
-import chromadb
 
 from .embedder import get_embedding
 
 
-# Determine the path for ChromaDB storage
+# Determine the path for JSON storage
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-CHROMA_DATA_DIR = os.path.join(BASE_DIR, "apps", "parser", "chroma_data")
+DATA_DIR = os.path.join(BASE_DIR, "apps", "parser", "rag_data")
+DB_FILE = os.path.join(DATA_DIR, "vector_db.json")
+
+
+def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
+    if not vec1 or not vec2 or len(vec1) != len(vec2):
+        return 0.0
+    dot_product = sum(a * b for a, b in zip(vec1, vec2))
+    mag1 = math.sqrt(sum(a * a for a in vec1))
+    mag2 = math.sqrt(sum(b * b for b in vec2))
+    if mag1 == 0 or mag2 == 0:
+        return 0.0
+    return dot_product / (mag1 * mag2)
 
 
 class ResumeVectorStore:
     def __init__(self):
-        # Ensure the directory exists
-        os.makedirs(CHROMA_DATA_DIR, exist_ok=True)
-        # Initialize the ChromaDB client with persistence
-        self.client = chromadb.PersistentClient(path=CHROMA_DATA_DIR)
+        os.makedirs(DATA_DIR, exist_ok=True)
+        if not os.path.exists(DB_FILE):
+            with open(DB_FILE, "w", encoding="utf-8") as f:
+                json.dump([], f)
         
-        # Get or create the collection
-        self.collection = self.client.get_or_create_collection(
-            name="resume_examples",
-            metadata={"hnsw:space": "cosine"} # Use cosine similarity
-        )
+    def _load_data(self) -> List[Dict[str, Any]]:
+        try:
+            with open(DB_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, FileNotFoundError):
+            return []
+
+    def _save_data(self, data: List[Dict[str, Any]]) -> None:
+        with open(DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
 
     def add_resume(self, user_id: str, raw_text: str, json_output: Dict[str, Any], verified: bool) -> None:
         """
-        Upsert a resume into the vector store.
-        - id: string representation of user_id (enables upsert)
-        - raw_text: truncated to 3000 chars
-        - json_output: serialized to JSON string in metadata
-        - verified: boolean flag in metadata
+        Upsert a resume into the lightweight JSON vector store.
         """
         if not raw_text:
             return
@@ -46,63 +58,56 @@ class ResumeVectorStore:
         truncated_text = raw_text[:3000]
         embedding = get_embedding(truncated_text)
         
-        metadata = {
+        data = self._load_data()
+        
+        new_entry = {
+            "id": doc_id,
+            "embedding": embedding,
+            "raw_text": truncated_text,
             "json_output": json.dumps(json_output),
             "verified": verified
         }
 
-        # Upsert adds or updates based on the ID
-        self.collection.upsert(
-            ids=[doc_id],
-            embeddings=[embedding],
-            documents=[truncated_text],
-            metadatas=[metadata]
-        )
+        # Check if exists to upsert
+        updated = False
+        for i, entry in enumerate(data):
+            if entry.get("id") == doc_id:
+                data[i] = new_entry
+                updated = True
+                break
+        
+        if not updated:
+            data.append(new_entry)
+            
+        self._save_data(data)
 
     def query_similar(self, resume_text: str, top_k: int = 3) -> List[Dict[str, Any]]:
         """
-        Query the vector store for similar verified resumes.
-        Returns a list of dictionaries with 'resume_text', 'json_output', 'verified', and 'similarity'.
+        Query the lightweight vector store for similar verified resumes.
         """
         if not resume_text:
             return []
 
-        embedding = get_embedding(resume_text[:8000])
-
-        results = self.collection.query(
-            query_embeddings=[embedding],
-            n_results=top_k,
-            where={"verified": True},
-            include=["documents", "metadatas", "distances"]
-        )
-
-        similar_resumes = []
-        if not results or not results["ids"] or not results["ids"][0]:
-            return similar_resumes
-
-        # Extract the inner lists (since we only queried for 1 embedding)
-        documents = results["documents"][0]
-        metadatas = results["metadatas"][0]
-        distances = results["distances"][0]
-
-        for i in range(len(documents)):
-            # Cosine distance to similarity: similarity = 1 - distance
-            # (Assuming ChromaDB returns cosine distance for 'cosine' space)
-            distance = distances[i]
-            similarity = 1.0 - distance
-
-            metadata = metadatas[i]
-            json_output = json.loads(metadata["json_output"])
-            verified = metadata["verified"]
-
-            similar_resumes.append({
-                "resume_text": documents[i],
-                "json_output": json_output,
-                "verified": verified,
-                "similarity": similarity
+        query_embedding = get_embedding(resume_text[:8000])
+        data = self._load_data()
+        
+        results = []
+        for entry in data:
+            if not entry.get("verified"):
+                continue
+                
+            sim = cosine_similarity(query_embedding, entry["embedding"])
+            results.append({
+                "resume_text": entry["raw_text"],
+                "json_output": json.loads(entry["json_output"]),
+                "verified": entry["verified"],
+                "similarity": sim
             })
 
-        return similar_resumes
+        # Sort by similarity descending
+        results.sort(key=lambda x: x["similarity"], reverse=True)
+        return results[:top_k]
 
-# Expose a singleton instance for easier importing
+
+# Expose a singleton instance
 vector_store = ResumeVectorStore()

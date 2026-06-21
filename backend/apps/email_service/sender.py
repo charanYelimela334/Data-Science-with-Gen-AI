@@ -1,60 +1,51 @@
 # File: backend/apps/email_service/sender.py
-# Purpose: Email sender using Resend API for sharing generated login credentials.
+# Purpose: Email sender using EmailJS API for sharing generated login credentials.
 # App: email_service
 
 from __future__ import annotations
 
+import json
 import os
-
-import resend
+import urllib.request
 from dotenv import load_dotenv
-
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 
-def _send_email(to_email: str, subject: str, body: str) -> None:
-    api_key = (os.getenv("RESEND_API_KEY") or "").strip()
-    sender_email = os.getenv("SENDER_EMAIL", "onboarding@resend.dev")
-
-    if not api_key:
-        raise RuntimeError(
-            "Missing RESEND_API_KEY in environment variables."
-        )
-
-    resend.api_key = api_key
-
-    resend.Emails.send({
-        "from": sender_email,
-        "to": [to_email],
-        "subject": subject,
-        "text": body,
-    })
-
-
 def send_credentials_email(to_email: str, password: str) -> None:
     login_url = os.getenv("APP_LOGIN_URL", "http://localhost:8501")
 
-    subject = "Your ResumeBoard AI Login Credentials"
-    body = (
-        "Your account has been created from your resume.\n\n"
-        f"Email: {to_email}\n"
-        f"Password: {password}\n"
-        f"Login: {login_url}\n\n"
-        "Please log in and verify your profile."
-    )
+    service_id = os.getenv("EMAILJS_SERVICE_ID", "").strip()
+    template_id = os.getenv("EMAILJS_TEMPLATE_ID", "").strip()
+    public_key = os.getenv("EMAILJS_PUBLIC_KEY", "").strip()
+    private_key = os.getenv("EMAILJS_PRIVATE_KEY", "").strip()
 
-    _send_email(to_email=to_email, subject=subject, body=body)
+    if not all([service_id, template_id, public_key, private_key]):
+        raise RuntimeError("Missing EmailJS configuration in environment variables.")
 
+    url = "https://api.emailjs.com/api/v1.0/email/send"
+    payload = {
+        "service_id": service_id,
+        "template_id": template_id,
+        "user_id": public_key,
+        "accessToken": private_key,
+        "template_params": {
+            "to_email": to_email,
+            "password": password,
+            "login_url": login_url
+        }
+    }
 
-def send_test_email(to_email: str) -> None:
-    subject = "ResumeBoard AI SMTP Test"
-    body = (
-        "Email configuration is working.\n\n"
-        "This is a test email from ResumeBoard AI backend."
-    )
-    _send_email(to_email=to_email, subject=subject, body=body)
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+
+    try:
+        with urllib.request.urlopen(req) as response:
+            if response.status not in (200, 201):
+                raise RuntimeError(f"EmailJS returned status: {response.status}")
+    except Exception as e:
+        raise RuntimeError(f"Failed to send via EmailJS: {e}")
 
 
 def send_credentials_email_safe(to_email: str, password: str) -> tuple[bool, str]:
@@ -67,11 +58,3 @@ def send_credentials_email_safe(to_email: str, password: str) -> tuple[bool, str
         return True, "sent"
     except Exception as exc:
         return False, f"Email not sent: {exc}"
-
-
-def send_test_email_safe(to_email: str) -> tuple[bool, str]:
-    try:
-        send_test_email(to_email=to_email)
-        return True, "sent"
-    except Exception as exc:
-        return False, str(exc)
